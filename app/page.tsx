@@ -1,113 +1,189 @@
-import Image from "next/image";
+"use client";
+
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } from "@solana/web3.js";
+import { toast } from "react-toastify";
+import { useCallback, useEffect, useState } from "react";
+import { Token } from "./components/Token";
 
 export default function Home() {
+  const { connection } = useConnection();
+  const { publicKey, sendTransaction } = useWallet();
+  const [balance, setBalance] = useState<number>(0);
+  const [solAmount, setSolAmount] = useState<number>(0.5);
+  const [receiverPublicKey, setReceiverPublicKey] = useState<string>("");
+
+  const getBalance = useCallback(async () => {
+    if (publicKey) {
+      try {
+        const newBalance = await connection.getBalance(publicKey);
+        return newBalance / LAMPORTS_PER_SOL;
+      } catch (error) {
+        console.error("Failed to fetch balance:", error);
+        toast.error("Failed to fetch balance.");
+      }
+    }
+    return 0;
+  }, [publicKey, connection]);
+
+  useEffect(() => {
+    if (publicKey) {
+      const fetchBalance = async () => {
+        const newBalance = await getBalance();
+        setBalance(newBalance);
+      };
+      fetchBalance();
+      const intervalId = setInterval(fetchBalance, 5000);
+      return () => clearInterval(intervalId);
+    }
+  }, [publicKey, connection, getBalance]);
+
+  const getAirdropOnClick = async () => {
+    try {
+      if (!publicKey) {
+        throw new Error("Wallet is not connected");
+      }
+
+      const [latestBlockhash, signature] = await Promise.all([
+        connection.getLatestBlockhash(),
+        connection.requestAirdrop(
+          publicKey,
+          Math.floor(Math.random() * 5 + 1) * LAMPORTS_PER_SOL
+        ),
+      ]);
+
+      const signResult = await connection.confirmTransaction(
+        { signature, ...latestBlockhash },
+        "confirmed"
+      );
+
+      if (signResult) {
+        toast.success("Airdrop was successful!");
+        setBalance(await getBalance());
+
+        // Explorer link for the airdrop transaction
+        const explorerUrl = `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
+        toast.info(
+          `View on Explorer: ${explorerUrl}`,
+          {
+            autoClose: false,
+            onClick: () => window.open(explorerUrl, "_blank"),
+          }
+        );
+      }
+    } catch (err) {
+      toast.error("Airdrop failed");
+      console.error(`Airdrop failed: ${err}`);
+    }
+  };
+
+  const transferSol = async () => {
+    try {
+      if (!publicKey) {
+        throw new Error("Wallet is not connected");
+      }
+      if (!receiverPublicKey) {
+        throw new Error("Receiver Public Key is required");
+      }
+
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: new PublicKey(receiverPublicKey),
+          lamports: solAmount * LAMPORTS_PER_SOL,
+        })
+      );
+      const signature = await sendTransaction(transaction, connection);
+      const sigResult = await connection.confirmTransaction(
+        signature,
+        "confirmed"
+      );
+
+      if (sigResult) {
+        toast.success("Transaction was successful!");
+        setBalance(await getBalance());
+
+        // Explorer link for the transfer transaction
+        const explorerUrl = `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
+        toast.info(
+          `View on Explorer: ${explorerUrl}`,
+          {
+            autoClose: false,
+            onClick: () => window.open(explorerUrl, "_blank"),
+          }
+        );
+      }
+    } catch (err) {
+      toast.error("Transaction failed");
+      console.error(`Transaction failed: ${err}`);
+    }
+  };
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:size-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
+    <div className="flex flex-col items-center justify-center min-h-screen p-4">
+      <header className="w-full flex justify-end mb-8">
+        <WalletMultiButton className="btn-primary" />
+      </header>
+
+      {publicKey ? (
+        <div className="flex flex-col items-center gap-8 w-full max-w-2xl animate-fade-in">
+          <h1 className="text-3xl font-bold text-purple-400">
+            Welcome, Solana User!
+          </h1>
+          <div className="bg-gray-800 p-6 rounded-lg shadow-lg w-full">
+            <h2 className="text-2xl font-bold text-purple-400 mb-4">Account Info</h2>
+            <p className="text-green-400 break-all">
+              Public Key: {publicKey.toString()}
+            </p>
+            <p className="text-yellow-400 mt-2">
+              Balance: {balance.toFixed(4)} SOL
+            </p>
+            <button
+              onClick={getAirdropOnClick}
+              className="btn-secondary mt-4"
+            >
+              Request Airdrop
+            </button>
+          </div>
+
+          <div className="bg-gray-800 p-6 rounded-lg shadow-lg w-full">
+            <h2 className="text-2xl font-bold text-purple-400 mb-4">Transfer SOL</h2>
+            <div className="flex flex-col gap-4">
+              <input
+                type="number"
+                className="bg-gray-700 text-white rounded px-3 py-2 w-full"
+                value={solAmount}
+                onChange={(e) => setSolAmount(parseFloat(e.target.value))}
+                placeholder="Amount"
+              />
+              <input
+                type="text"
+                className="bg-gray-700 text-white rounded px-3 py-2 w-full"
+                value={receiverPublicKey}
+                onChange={(e) => setReceiverPublicKey(e.target.value)}
+                placeholder="Receiver Public Key"
+              />
+            </div>
+            <button
+              onClick={transferSol}
+              className="btn-primary mt-4 w-full"
+            >
+              Transfer SOL
+            </button>
+          </div>
+
+          <Token />
         </div>
-      </div>
-
-      <div className="relative z-[-1] flex place-items-center before:absolute before:h-[300px] before:w-full before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 sm:before:w-[480px] sm:after:w-[240px] before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Explore starter templates for Next.js.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-balance text-sm opacity-50">
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
+      ) : (
+        <div className="text-center animate-fade-in">
+          <h1 className="text-3xl font-bold text-purple-400 mb-8">
+            Welcome to Solana Token Manager
+          </h1>
+          <p className="text-xl mb-8">Please connect your wallet to continue</p>
+          <WalletMultiButton className="btn-primary" />
+        </div>
+      )}
+    </div>
   );
 }
